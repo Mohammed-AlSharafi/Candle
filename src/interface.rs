@@ -261,8 +261,8 @@ impl Interface {
         }
 
         while event::poll(Duration::ZERO)? {
-            if let Event::Key(key) = event::read()? {
-                match (key.code, key.modifiers) {
+            match event::read()? {
+                Event::Key(key) => match (key.code, key.modifiers) {
                     (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
                         return Ok(Tick::Kill);
                     }
@@ -283,9 +283,8 @@ impl Interface {
                         self.history_scroll_state.scroll_down();
                     }
                     _ => {}
-                }
-            } else if let Event::Mouse(mouse_event) = event::read()? {
-                match mouse_event.kind {
+                },
+                Event::Mouse(mouse_event) => match mouse_event.kind {
                     MouseEventKind::Down(MouseButton::Left) => {
                         // Convert screen coordinates to content coordinates by
                         // adding the scroll offset, so the click lands on the
@@ -295,14 +294,7 @@ impl Interface {
                             mouse_event.column.saturating_add(scroll_offset.x),
                             mouse_event.row.saturating_add(scroll_offset.y),
                         );
-
-                        for block in &mut self.history {
-                            if let BlockType::Reasoning { expanded, .. } = &mut block.block_type {
-                                if block.area.contains(mouse_pos) {
-                                    *expanded = !*expanded
-                                }
-                            }
-                        }
+                        self.toggle_reasoning_at(mouse_pos);
                     }
                     MouseEventKind::ScrollDown => {
                         for _ in 0..SCROLL_SPEED {
@@ -322,18 +314,11 @@ impl Interface {
                             mouse_event.column.saturating_add(scroll_offset.x),
                             mouse_event.row.saturating_add(scroll_offset.y),
                         );
-                        for block in &mut self.history {
-                            if let BlockType::Reasoning { hovered, .. } = &mut block.block_type {
-                                if block.area.contains(mouse_pos) {
-                                    *hovered = true
-                                } else {
-                                    *hovered = false
-                                }
-                            }
-                        }
+                        self.update_hover_at(mouse_pos);
                     }
                     _ => {}
-                }
+                },
+                _ => {}
             }
         }
         Ok(Tick::Idle)
@@ -342,5 +327,23 @@ impl Interface {
     fn terminate_interface(&self) {
         let _ = execute!(stdout(), DisableMouseCapture);
         ratatui::restore();
+    }
+
+    fn toggle_reasoning_at(&mut self, pos: Position) {
+        for block in &mut self.history {
+            if let BlockType::Reasoning { expanded, .. } = &mut block.block_type {
+                if block.area.contains(pos) {
+                    *expanded = !*expanded;
+                }
+            }
+        }
+    }
+
+    fn update_hover_at(&mut self, pos: Position) {
+        for block in &mut self.history {
+            if let BlockType::Reasoning { hovered, .. } = &mut block.block_type {
+                *hovered = block.area.contains(pos);
+            }
+        }
     }
 }
