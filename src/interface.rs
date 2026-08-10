@@ -8,13 +8,21 @@ use ratatui::{
     backend::CrosstermBackend,
     crossterm::event::{self, Event, KeyCode, KeyModifiers},
     layout::{Constraint, Direction, Layout, Position, Rect, Size},
-    style::{Color, Modifier, Style},
+    style::{
+        Color::{self, Rgb},
+        Modifier, Style,
+    },
     widgets::{Block, Borders, Padding, Paragraph, Wrap},
 };
-use std::{collections::VecDeque, io::stdout, time::Duration};
+use std::{
+    collections::VecDeque,
+    io::stdout,
+    time::{Duration, Instant},
+};
 use tokio::{select, sync::mpsc};
 use tui_scrollview::{ScrollView, ScrollViewState, ScrollbarVisibility};
 
+use crate::helpers::format_duration;
 use crate::{agent::Agent, events::DisplayEvent};
 
 const SCROLL_SPEED: u8 = 2;
@@ -26,6 +34,7 @@ pub struct Interface {
     history: Vec<DisplayBlock>,
     history_scroll_state: ScrollViewState,
     prompt_queue: VecDeque<String>,
+    loop_timer: Option<Instant>,
 }
 
 enum Tick {
@@ -40,6 +49,7 @@ enum BlockType {
     Content,
     ToolCall,
     Error,
+    Status,
 }
 struct DisplayBlock {
     block_type: BlockType,
@@ -72,6 +82,7 @@ impl Interface {
             history: Vec::<DisplayBlock>::new(),
             history_scroll_state: ScrollViewState::default(),
             prompt_queue: VecDeque::<String>::new(),
+            loop_timer: None,
         }
     }
 
@@ -100,6 +111,8 @@ impl Interface {
             let agent_future = agent.agent_loop(Some(prompt));
             tokio::pin!(agent_future);
 
+            self.loop_timer = Some(Instant::now());
+
             //second loop while to render and queue prompts while executing prompt
             loop {
                 select! {
@@ -114,6 +127,11 @@ impl Interface {
                     res = &mut agent_future => {
                         match res{
                             Ok(_) => {
+                                if let Some(start) = self.loop_timer{
+                                    let elapsed = start.elapsed();
+                                    let formatted_duration = format_duration(elapsed);
+                                    self.history.push(DisplayBlock::new(BlockType::Status, formatted_duration));
+                                }
                                 break
                             }
                             Err(result) => {
@@ -123,6 +141,9 @@ impl Interface {
                         }}
                 }
             }
+
+            //finished loop
+            self.loop_timer = None;
         }
     }
 
@@ -131,11 +152,12 @@ impl Interface {
             let area = frame.area();
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Min(1), Constraint::Max(3)])
+                .constraints([Constraint::Min(1), Constraint::Max(1), Constraint::Max(3)])
                 .split(area);
 
             let history_chunk = chunks[0];
-            let prompt_chunk = chunks[1];
+            let status_chunk = chunks[1];
+            let prompt_chunk = chunks[2];
 
             let input_widget = Paragraph::new(format!("❯ {}", self.input))
                 .block(
@@ -145,6 +167,13 @@ impl Interface {
                 )
                 .wrap(Wrap { trim: false });
             frame.render_widget(input_widget, prompt_chunk);
+
+            if let Some(start) = self.loop_timer {
+                let elapsed = start.elapsed();
+                let formatted_duration = format_duration(elapsed);
+                let status_widget = Paragraph::new(format!("{}", formatted_duration));
+                frame.render_widget(status_widget, status_chunk);
+            }
 
             let history_width = history_chunk.width.max(1); //we pick the max between 1 and history chunk's width
             let history_texts = self
@@ -174,6 +203,10 @@ impl Interface {
                     ),
                     BlockType::Error => (item.content.to_owned(), Style::default().red()),
                     BlockType::ToolCall => (item.content.to_owned(), Style::default()),
+                    BlockType::Status => (
+                        item.content.to_owned(),
+                        Style::default().fg(Rgb(31, 31, 31)),
+                    ),
                 })
                 .collect::<Vec<(String, Style)>>();
 
@@ -245,11 +278,7 @@ impl Interface {
             ),
         };
 
-        self.history.push(DisplayBlock {
-            block_type,
-            content,
-            area: Rect::default(),
-        });
+        self.history.push(DisplayBlock::new(block_type, content));
         self.history_scroll_state.scroll_to_bottom();
     }
 

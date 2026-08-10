@@ -4,6 +4,7 @@ mod specs;
 mod tools;
 mod events;
 mod system_prompt;
+mod helpers;
 
 use tools::{execute_bash, read_file, write_file};
 
