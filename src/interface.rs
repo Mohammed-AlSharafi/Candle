@@ -12,7 +12,7 @@ use ratatui::{
         Color::{self, Rgb},
         Modifier, Style,
     },
-    widgets::{Block, Borders, Padding, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap},
 };
 use std::{
     collections::VecDeque,
@@ -22,11 +22,10 @@ use std::{
 use tokio::{select, sync::mpsc};
 use tui_scrollview::{ScrollView, ScrollViewState, ScrollbarVisibility};
 
-use crate::helpers::format_duration;
+use crate::{animations::{Animation, AnimationType}, helpers::format_duration};
 use crate::{agent::Agent, events::DisplayEvent};
 
 const SCROLL_SPEED: u8 = 2;
-
 pub struct Interface {
     terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
     event_rx: mpsc::UnboundedReceiver<DisplayEvent>,
@@ -35,6 +34,8 @@ pub struct Interface {
     history_scroll_state: ScrollViewState,
     prompt_queue: VecDeque<String>,
     loop_timer: Option<Instant>,
+    is_loop_running: bool,
+    loading_ani: Animation
 }
 
 enum Tick {
@@ -83,6 +84,8 @@ impl Interface {
             history_scroll_state: ScrollViewState::default(),
             prompt_queue: VecDeque::<String>::new(),
             loop_timer: None,
+            is_loop_running: false,
+            loading_ani: Animation::new(AnimationType::LOADING)
         }
     }
 
@@ -112,6 +115,7 @@ impl Interface {
             tokio::pin!(agent_future);
 
             self.loop_timer = Some(Instant::now());
+            self.is_loop_running = true;
 
             //second loop while to render and queue prompts while executing prompt
             loop {
@@ -125,6 +129,7 @@ impl Interface {
                         }
                     }
                     res = &mut agent_future => {
+                        self.drain_events();
                         match res{
                             Ok(_) => {
                                 if let Some(start) = self.loop_timer{
@@ -144,6 +149,7 @@ impl Interface {
 
             //finished loop
             self.loop_timer = None;
+            self.is_loop_running = false;
         }
     }
 
@@ -171,7 +177,7 @@ impl Interface {
             if let Some(start) = self.loop_timer {
                 let elapsed = start.elapsed();
                 let formatted_duration = format_duration(elapsed);
-                let status_widget = Paragraph::new(format!("{}", formatted_duration));
+                let status_widget = Paragraph::new(format!("{} Working on it... {}", self.loading_ani.next_frame(), formatted_duration));
                 frame.render_widget(status_widget, status_chunk);
             }
 
@@ -217,7 +223,7 @@ impl Interface {
                     let paragraph = Paragraph::new(tui_markdown::from_str(text))
                         .style(*style)
                         .wrap(Wrap { trim: false })
-                        .block(Block::default().padding(Padding::uniform(1)));
+                        .block(Block::default());
                     history_total_height += paragraph.line_count(history_width);
                     paragraph
                 })
@@ -244,6 +250,12 @@ impl Interface {
         })?;
 
         return Ok(());
+    }
+
+    fn drain_events(&mut self) {
+        while let Ok(event) = self.event_rx.try_recv() {
+            self.handle_event(&event);
+        }
     }
 
     fn handle_event(&mut self, event: &DisplayEvent) {

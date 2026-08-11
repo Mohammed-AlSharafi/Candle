@@ -5,6 +5,7 @@ mod tools;
 mod events;
 mod system_prompt;
 mod helpers;
+mod animations;
 
 use tools::{execute_bash, read_file, write_file};
 
