@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = Client::with_config(config);
 
-    let model = "qwen/qwen3.6-27b";
+    let model = "deepseek-v4-flash";
 
     let mut functions: HashMap<
         String,

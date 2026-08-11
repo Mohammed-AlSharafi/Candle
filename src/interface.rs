@@ -12,7 +12,7 @@ use ratatui::{
         Color::{self, Rgb},
         Modifier, Style,
     },
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Padding, Paragraph, Wrap},
 };
 use std::{
     collections::VecDeque,
@@ -22,8 +22,11 @@ use std::{
 use tokio::{select, sync::mpsc};
 use tui_scrollview::{ScrollView, ScrollViewState, ScrollbarVisibility};
 
-use crate::{animations::{Animation, AnimationType}, helpers::format_duration};
 use crate::{agent::Agent, events::DisplayEvent};
+use crate::{
+    animations::{Animation, AnimationType},
+    helpers::format_duration,
+};
 
 const SCROLL_SPEED: u8 = 2;
 pub struct Interface {
@@ -35,7 +38,7 @@ pub struct Interface {
     prompt_queue: VecDeque<String>,
     loop_timer: Option<Instant>,
     is_loop_running: bool,
-    loading_ani: Animation
+    loading_ani: Animation,
 }
 
 enum Tick {
@@ -85,7 +88,7 @@ impl Interface {
             prompt_queue: VecDeque::<String>::new(),
             loop_timer: None,
             is_loop_running: false,
-            loading_ani: Animation::new(AnimationType::LOADING)
+            loading_ani: Animation::new(AnimationType::LOADING),
         }
     }
 
@@ -135,7 +138,7 @@ impl Interface {
                                 if let Some(start) = self.loop_timer{
                                     let elapsed = start.elapsed();
                                     let formatted_duration = format_duration(elapsed);
-                                    self.history.push(DisplayBlock::new(BlockType::Status, formatted_duration));
+                                    self.history.push(DisplayBlock::new(BlockType::Status, format!("Churned . {}", formatted_duration)));
                                 }
                                 break
                             }
@@ -166,18 +169,18 @@ impl Interface {
             let prompt_chunk = chunks[2];
 
             let input_widget = Paragraph::new(format!("❯ {}", self.input))
-                .block(
-                    Block::default()
-                        .borders(Borders::TOP | Borders::BOTTOM)
-                        .title("Prompt"),
-                )
+                .block(Block::default().borders(Borders::TOP | Borders::BOTTOM))
                 .wrap(Wrap { trim: false });
             frame.render_widget(input_widget, prompt_chunk);
 
             if let Some(start) = self.loop_timer {
                 let elapsed = start.elapsed();
                 let formatted_duration = format_duration(elapsed);
-                let status_widget = Paragraph::new(format!("{} Working on it... {}", self.loading_ani.next_frame(), formatted_duration));
+                let status_widget = Paragraph::new(format!(
+                    "{} Working on it... {}",
+                    self.loading_ani.next_frame(),
+                    formatted_duration
+                ));
                 frame.render_widget(status_widget, status_chunk);
             }
 
@@ -223,7 +226,7 @@ impl Interface {
                     let paragraph = Paragraph::new(tui_markdown::from_str(text))
                         .style(*style)
                         .wrap(Wrap { trim: false })
-                        .block(Block::default());
+                        .block(Block::default().padding(Padding::uniform(1)));
                     history_total_height += paragraph.line_count(history_width);
                     paragraph
                 })
