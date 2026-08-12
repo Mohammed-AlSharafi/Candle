@@ -252,6 +252,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b35204fbdc0b3f4446b89fc1ac2cf84a8a68971995d0bf2e925ec7cd960f9cb3"
 
 [[package]]
+name = "candle"
+version = "0.1.0"
+dependencies = [
+ "async-openai",
+ "clap",
+ "crossterm",
+ "dotenvy",
+ "futures",
+ "ratatui",
+ "serde_json",
+ "tokio",
+ "tui-markdown",
+ "tui-scrollview",
+]
+
+[[package]]
 name = "castaway"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2935,22 +2951,6 @@ dependencies = [
  "indoc",
  "ratatui-core",
  "ratatui-widgets",
-]
-
-[[package]]
-name = "two_code"
-version = "0.1.0"
-dependencies = [
- "async-openai",
- "clap",
- "crossterm",
- "dotenvy",
- "futures",
- "ratatui",
- "serde_json",
- "tokio",
- "tui-markdown",
- "tui-scrollview",
 ]
 
 [[package]]

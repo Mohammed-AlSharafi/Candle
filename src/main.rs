@@ -6,6 +6,7 @@ mod events;
 mod system_prompt;
 mod helpers;
 mod animations;
+mod welcome;
 
 use tools::{execute_bash, read_file, write_file};
 
@@ -56,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (event_tx, event_rx) = mpsc::unbounded_channel::<DisplayEvent>();
 
     let mut agent = Agent::with_history(client, model.to_string(), messages, specs, functions, event_tx);
-    let mut interface = Interface::new(event_rx);
+    let mut interface = Interface::new(event_rx, model.to_string());
 
     let _ = interface.run(&mut agent).await?;
 

@@ -26,12 +26,15 @@ use crate::{agent::Agent, events::DisplayEvent};
 use crate::{
     animations::{Animation, AnimationType},
     helpers::format_duration,
+    welcome::{self, WelcomeData},
 };
 
 const SCROLL_SPEED: u8 = 2;
+const MESSAGES_GAP: u16 = 2;
 pub struct Interface {
     terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
     event_rx: mpsc::UnboundedReceiver<DisplayEvent>,
+    model: String,
     input: String,
     history: Vec<DisplayBlock>,
     history_scroll_state: ScrollViewState,
@@ -47,6 +50,7 @@ enum Tick {
     End,
     Kill,
 }
+#[derive(Clone, Copy)]
 enum BlockType {
     User,
     Reasoning { expanded: bool, hovered: bool },
@@ -54,7 +58,9 @@ enum BlockType {
     ToolCall,
     Error,
     Status,
+    Welcome,
 }
+
 struct DisplayBlock {
     block_type: BlockType,
     content: String,
@@ -76,23 +82,28 @@ impl DisplayBlock {
 }
 
 impl Interface {
-    pub fn new(event_rx: mpsc::UnboundedReceiver<DisplayEvent>) -> Self {
+    pub fn new(event_rx: mpsc::UnboundedReceiver<DisplayEvent>, model: String) -> Self {
         let _ = execute!(stdout(), EnableMouseCapture);
 
         Self {
             terminal: ratatui::init(),
             event_rx,
+            model,
             input: String::new(),
             history: Vec::<DisplayBlock>::new(),
             history_scroll_state: ScrollViewState::default(),
             prompt_queue: VecDeque::<String>::new(),
             loop_timer: None,
             is_loop_running: false,
-            loading_ani: Animation::new(AnimationType::LOADING),
+            loading_ani: Animation::new(AnimationType::LOADING, Some(4)),
         }
     }
 
     pub async fn run(&mut self, agent: &mut Agent) -> Result<(), Box<dyn error::Error>> {
+        if self.history.is_empty() {
+            self.push_welcome();
+        }
+
         loop {
             //first loop to render and execute prompt
             let prompt = match self.prompt_queue.pop_front() {
@@ -188,49 +199,62 @@ impl Interface {
             let history_texts = self
                 .history
                 .iter()
-                .map(|item| match item.block_type {
-                    BlockType::User => (
-                        format!("❯ {}", item.content.to_owned()),
-                        Style::default().bg(Color::Rgb(31, 31, 31)),
-                    ),
-                    BlockType::Content => (item.content.to_owned(), Style::default()),
-                    BlockType::Reasoning { expanded, hovered } => (
-                        if expanded {
-                            item.content.to_owned()
-                        } else {
-                            if item.content.len() > 0 {
-                                "Thinking >".to_owned()
+                .map(|item| {
+                    let block_type = item.block_type;
+                    let (text, style) = match block_type {
+                        BlockType::User => (
+                            format!("❯ {}", item.content.to_owned()),
+                            Style::default().bg(Color::Rgb(31, 31, 31)),
+                        ),
+                        BlockType::Content => (item.content.to_owned(), Style::default()),
+                        BlockType::Reasoning { expanded, hovered } => (
+                            if expanded {
+                                item.content.to_owned()
                             } else {
-                                "Thinking".to_owned()
-                            }
-                        },
-                        if hovered {
-                            Style::default().add_modifier(Modifier::ITALIC)
-                        } else {
-                            Style::default().add_modifier(Modifier::ITALIC).dim()
-                        },
-                    ),
-                    BlockType::Error => (item.content.to_owned(), Style::default().red()),
-                    BlockType::ToolCall => (item.content.to_owned(), Style::default()),
-                    BlockType::Status => (
-                        item.content.to_owned(),
-                        Style::default().fg(Rgb(31, 31, 31)),
-                    ),
+                                if item.content.len() > 0 {
+                                    "Thinking >".to_owned()
+                                } else {
+                                    "Thinking".to_owned()
+                                }
+                            },
+                            if hovered {
+                                Style::default().add_modifier(Modifier::ITALIC)
+                            } else {
+                                Style::default().add_modifier(Modifier::ITALIC).dim()
+                            },
+                        ),
+                        BlockType::Error => (item.content.to_owned(), Style::default().red()),
+                        BlockType::ToolCall => (item.content.to_owned(), Style::default()),
+                        BlockType::Status => (
+                            item.content.to_owned(),
+                            Style::default().fg(Rgb(31, 31, 31)),
+                        ),
+                        BlockType::Welcome => (item.content.to_owned(), Style::default()),
+                    };
+                    (block_type, text, style)
                 })
-                .collect::<Vec<(String, Style)>>();
+                .collect::<Vec<(BlockType, String, Style)>>();
 
             let mut history_total_height = 0;
             let history_widgets = history_texts
                 .iter()
-                .map(|(text, style)| {
-                    let paragraph = Paragraph::new(tui_markdown::from_str(text))
-                        .style(*style)
-                        .wrap(Wrap { trim: false })
-                        .block(Block::default().padding(Padding::uniform(1)));
+                .map(|(block_type, text, style)| {
+                    let paragraph = match block_type {
+                        BlockType::Welcome => Paragraph::new(text.as_str())
+                            .style(*style)
+                            .wrap(Wrap { trim: false })
+                            .block(Block::default().padding(Padding::uniform(1)).borders(Borders::ALL)),
+                        _ => Paragraph::new(tui_markdown::from_str(text))
+                            .style(*style)
+                            .wrap(Wrap { trim: false })
+                            .block(Block::default()),
+                    };
                     history_total_height += paragraph.line_count(history_width);
                     paragraph
                 })
                 .collect::<Vec<Paragraph>>();
+
+            history_total_height += MESSAGES_GAP as usize * history_widgets.len() - 1;
 
             //create scrollview of the whole history
             let history_content_size = Size::new(history_width, history_total_height as u16);
@@ -243,7 +267,7 @@ impl Interface {
                 let rect = Rect::new(0, curr_height, history_content_size.width, item_height);
                 block.update_area(rect);
                 history_scroll_view.render_widget(item, rect);
-                curr_height += item_height;
+                curr_height += item_height + MESSAGES_GAP;
             }
             frame.render_stateful_widget(
                 history_scroll_view,
@@ -371,6 +395,16 @@ impl Interface {
     fn terminate_interface(&self) {
         let _ = execute!(stdout(), DisableMouseCapture);
         ratatui::restore();
+    }
+
+    /// Push the welcome screen as the first history block when the conversation
+    /// is empty.
+    fn push_welcome(&mut self) {
+        let data = WelcomeData::new(self.model.clone());
+        let content = welcome::welcome_content(&data);
+        self.history
+            .push(DisplayBlock::new(BlockType::Welcome, content));
+        self.history_scroll_state.scroll_to_bottom();
     }
 
     fn toggle_reasoning_at(&mut self, pos: Position) {
