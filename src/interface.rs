@@ -204,7 +204,7 @@ impl Interface {
                     let (text, style) = match block_type {
                         BlockType::User => (
                             format!("❯ {}", item.content.to_owned()),
-                            Style::default().bg(Color::Rgb(31, 31, 31)),
+                            Style::default().bg(Color::Rgb(0, 0, 0)),
                         ),
                         BlockType::Content => (item.content.to_owned(), Style::default()),
                         BlockType::Reasoning { expanded, hovered } => (
@@ -247,7 +247,7 @@ impl Interface {
                         _ => Paragraph::new(tui_markdown::from_str(text))
                             .style(*style)
                             .wrap(Wrap { trim: false })
-                            .block(Block::default()),
+                            .block(Block::default().padding(Padding::new(1,3,0,0))),
                     };
                     history_total_height += paragraph.line_count(history_width);
                     paragraph
